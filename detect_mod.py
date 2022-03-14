@@ -47,8 +47,22 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
+def midpoint(obj):
+    # print(obj)
+    return (obj[0][0] + obj[0][2]) / 2, (obj[0][1] + obj[0][3]) / 2
+
+
+def distance(obj1, obj2):
+    x1, y1 = midpoint(obj1)
+    x2, y2 = midpoint(obj2)
+    if x1 < x2:
+        x2 -= 1280
+    else:
+        x2 += 1280
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
 @torch.no_grad()
-def run(weights=ROOT / 'best.pt',  # model.pt path(s)
+def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
@@ -56,7 +70,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        view_img=False,  # show results
+        view_img=True,  # show results
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
@@ -68,7 +82,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         update=False,  # update all models
         project=ROOT / 'runs/detect',  # save results to project/name
         name='exp',  # save results to project/name
-        exist_ok=False,  # existing project/name ok, do not increment
+        exist_ok=True,  # existing project/name ok, do not increment
         line_thickness=3,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
@@ -151,10 +165,11 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+            list_of_label_left = []
+            list_of_label_right = []
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
-
                 # Print results
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
@@ -171,16 +186,70 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        if xyxy[0] < 1280:
+                            list_of_label_left.append([list(xyxy), names[c]])
+                        else:
+                            list_of_label_right.append([list(xyxy), names[c]])
                         annotator.box_label(xyxy, label, color=colors(c, True))
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
+            # print(list_of_label_left)
+            # print(list_of_label_right)
+            # match init by doing single side
+            match_list = []
+            for obj_l in list_of_label_left:
+                cache = []
+                for obj_r in list_of_label_right:
+                    if obj_l[1] == obj_r[1]:
+                        cache.append(obj_r)
+                min_dis, obj_opt = 2660, []
+                for obj_r_cache in cache:
+                    curdis = distance(obj_l,obj_r_cache)
+                    if curdis < min_dis:
+                        min_dis = curdis
+                        obj_opt = obj_r_cache
+                match_list.append([obj_l, obj_opt])
+
+            # for matches that contains more than one
+            cache = [[],[]]
+            match_list_copy = []
+            for match in match_list:
+                if match[1] not in cache[0]:
+                    cache[0].append(match[1])
+                else:
+                    cache[1].append(match[1])
+            for match in match_list:
+                if match[1] not in cache[1]:
+                    match_list_copy.append(match)
+            check_list = cache[1]
+            for check_index in check_list:
+                obj_opt, dis_min = [], 2660
+                for match in match_list:
+                    if match[1] == check_index and len(match[1]) > 0:
+                        dis_cache = distance(check_index, match[0])
+                        if dis_cache < dis_min:
+                            obj_opt = match[0]
+                            dis_min = dis_cache
+                match_list_copy.append([check_index, obj_opt])
+            match_list = match_list_copy
+
+
+
+
+
+
+
             # Print time (inference-only)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
-
+            def tensor2int(tensor):
+                return int(tensor[0].item()), int(tensor[1].item())
             # Stream results
             im0 = annotator.result()
             if view_img:
+                for line in match_list:
+                    if len(line[1])>0:
+                        cv2.line(im0, tensor2int(midpoint(line[0])), tensor2int(midpoint(line[1])), color=(0, 255, 0), thickness=10)
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
 
@@ -214,4 +283,4 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
 
 
 if __name__ == "__main__":
-    main()
+    run()
