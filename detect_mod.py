@@ -32,6 +32,7 @@ from pathlib import Path
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
+import numpy as np
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -53,22 +54,37 @@ def midpoint(obj):
 
 
 def distance(obj1, obj2):
+    def space(obj):
+        (x1, y1, x2, y2), _ = obj
+        return abs(x1 - x2) * abs(y1 - y2)
     x1, y1 = midpoint(obj1)
     x2, y2 = midpoint(obj2)
-    if x1 < x2:
+    sd = abs(space(obj1) - space(obj2))
+    # sd = 0
+    if x2 < 1280:
         x2 -= 1280
-    else:
-        x2 += 1280
-    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 + sd ** 0.5
+
+
+def transverse(obj):
+    obj = list(obj)
+    if obj[0] > 1280:
+        obj[0] -= 1280
+    return obj
+
+
+def tensor2int(tensor):
+    return int(tensor[0].item()), int(tensor[1].item())
+
 
 @torch.no_grad()
-def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
+def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
         source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
-        max_det=1000,  # maximum detections per image
+        conf_thres=0.3,  # confidence threshold
+        iou_thres=0.65,  # NMS IOU threshold
+        max_det=10,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=True,  # show results
         save_txt=False,  # save results to *.txt
@@ -205,52 +221,53 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                         cache.append(obj_r)
                 min_dis, obj_opt = 2660, []
                 for obj_r_cache in cache:
-                    curdis = distance(obj_l,obj_r_cache)
+                    curdis = distance(obj_l, obj_r_cache)
                     if curdis < min_dis:
                         min_dis = curdis
                         obj_opt = obj_r_cache
                 match_list.append([obj_l, obj_opt])
 
             # for matches that contains more than one
-            cache = [[],[]]
-            match_list_copy = []
-            for match in match_list:
-                if match[1] not in cache[0]:
-                    cache[0].append(match[1])
-                else:
-                    cache[1].append(match[1])
-            for match in match_list:
-                if match[1] not in cache[1]:
-                    match_list_copy.append(match)
-            check_list = cache[1]
-            for check_index in check_list:
-                obj_opt, dis_min = [], 2660
+            both_side = True
+            if both_side:
+                cache = [[], []]
+                match_list_copy = []
                 for match in match_list:
-                    if match[1] == check_index and len(match[1]) > 0:
-                        dis_cache = distance(check_index, match[0])
-                        if dis_cache < dis_min:
-                            obj_opt = match[0]
-                            dis_min = dis_cache
-                match_list_copy.append([check_index, obj_opt])
-            match_list = match_list_copy
-
-
-
-
-
-
+                    if match[1] not in cache[0]:
+                        cache[0].append(match[1])
+                    else:
+                        cache[1].append(match[1])
+                for match in match_list:
+                    if match[1] not in cache[1]:
+                        match_list_copy.append(match)
+                check_list = cache[1]
+                for check_index in check_list:
+                    obj_opt, dis_min = [], 2660
+                    for match in match_list:
+                        if match[1] == check_index and len(match[1]) > 0:
+                            dis_cache = distance(check_index, match[0])
+                            if dis_cache < dis_min:
+                                obj_opt = match[0]
+                                dis_min = dis_cache
+                    match_list_copy.append([check_index, obj_opt])
+                match_list = match_list_copy
 
             # Print time (inference-only)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
-            def tensor2int(tensor):
-                return int(tensor[0].item()), int(tensor[1].item())
             # Stream results
             im0 = annotator.result()
+            im_blank = np.zeros((720, 1280, 3))
             if view_img:
                 for line in match_list:
-                    if len(line[1])>0:
-                        cv2.line(im0, tensor2int(midpoint(line[0])), tensor2int(midpoint(line[1])), color=(0, 255, 0), thickness=10)
+                    if len(line[1]) > 0:
+                        cv2.line(im0, tensor2int(midpoint(line[0])), tensor2int(midpoint(line[1])), color=(0, 255, 0),
+                                 thickness=10)
+                        cv2.line(im_blank, transverse(tensor2int(midpoint(line[0]))), transverse(tensor2int(midpoint(line[1]))),
+                                 color=(0, 255, 0), thickness=10)
+
                 cv2.imshow(str(p), im0)
+                im_blank = cv2.resize(im_blank, (270, 180))
+                cv2.imshow(str(p) + "blank", im_blank)
                 cv2.waitKey(1)  # 1 millisecond
 
             # Save results (image with detections)
