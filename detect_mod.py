@@ -46,6 +46,7 @@ from utils.general import (LOGGER, check_file, check_img_size, check_imshow, che
                            increment_path, non_max_suppression, print_args, scale_coords, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
+import cv2
 
 
 def midpoint(obj):
@@ -53,17 +54,23 @@ def midpoint(obj):
     return (obj[0][0] + obj[0][2]) / 2, (obj[0][1] + obj[0][3]) / 2
 
 
-def distance(obj1, obj2):
+def distance(obj1, obj2, USESPACE=True):
     def space(obj):
         (x1, y1, x2, y2), _ = obj
         return abs(x1 - x2) * abs(y1 - y2)
+
     x1, y1 = midpoint(obj1)
     x2, y2 = midpoint(obj2)
-    sd = abs(space(obj1) - space(obj2))
+    if USESPACE:
+        sd = abs(space(obj1) - space(obj2))
+    else:
+        sd = 0
     # sd = 0
-    if x2 < 1280:
+    if x2 > 1280:
         x2 -= 1280
-    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 + sd ** 0.5
+    if x1 > 1280:
+        x1 -= 1280
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 + sd
 
 
 def transverse(obj):
@@ -78,12 +85,12 @@ def tensor2int(tensor):
 
 
 @torch.no_grad()
-def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
+def run(weights=ROOT / 'yolov5m.pt',  # model.pt path(s)
         source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.3,  # confidence threshold
-        iou_thres=0.65,  # NMS IOU threshold
+        conf_thres=0.5,  # confidence threshold
+        iou_thres=0.35,  # NMS IOU threshold
         max_det=10,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=True,  # show results
@@ -219,7 +226,7 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
                 for obj_r in list_of_label_right:
                     if obj_l[1] == obj_r[1]:
                         cache.append(obj_r)
-                min_dis, obj_opt = 2660, []
+                min_dis, obj_opt = 266000, []
                 for obj_r_cache in cache:
                     curdis = distance(obj_l, obj_r_cache)
                     if curdis < min_dis:
@@ -262,11 +269,15 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
                     if len(line[1]) > 0:
                         cv2.line(im0, tensor2int(midpoint(line[0])), tensor2int(midpoint(line[1])), color=(0, 255, 0),
                                  thickness=10)
-                        cv2.line(im_blank, transverse(tensor2int(midpoint(line[0]))), transverse(tensor2int(midpoint(line[1]))),
-                                 color=(0, 255, 0), thickness=10)
+                        p1 = transverse(tensor2int(midpoint(line[0])))
+                        p2 = transverse(tensor2int(midpoint(line[1])))
+                        cv2.line(im_blank, p1, p2, color=(0, 255, 0), thickness=10)
+                        cv2.putText(im_blank, str(round(distance(line[0], line[1], False).item())),
+                                    (max(p1[0], p2[0]), max(p1[1], p2[1])), cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
+                                    10)
 
                 cv2.imshow(str(p), im0)
-                im_blank = cv2.resize(im_blank, (270, 180))
+                im_blank = cv2.resize(im_blank, (540, 360))
                 cv2.imshow(str(p) + "blank", im_blank)
                 cv2.waitKey(1)  # 1 millisecond
 
