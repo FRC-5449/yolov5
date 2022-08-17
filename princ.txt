@@ -1,0 +1,1 @@
+z=b*f/d, x=z*xl/d, y=z*y/f

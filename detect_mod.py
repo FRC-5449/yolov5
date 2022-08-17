@@ -28,6 +28,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+import matching_utils as mu
 
 import cv2
 import torch
@@ -85,8 +86,8 @@ def tensor2int(tensor):
 
 
 @torch.no_grad()
-def run(weights=ROOT / 'yolov5m.pt',  # model.pt path(s)
-        source='0',  # file/dir/URL/glob, 0 for webcam
+def run(weights=ROOT / 'best.pt',  # model.pt path(s)
+        source='1',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
         conf_thres=0.5,  # confidence threshold
@@ -113,6 +114,7 @@ def run(weights=ROOT / 'yolov5m.pt',  # model.pt path(s)
         dnn=False,  # use OpenCV DNN for ONNX inference
         ):
     source = str(source)
+    mu_ma = mu.match()
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
     is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -267,6 +269,18 @@ def run(weights=ROOT / 'yolov5m.pt',  # model.pt path(s)
             if view_img:
                 for line in match_list:
                     if len(line[1]) > 0:
+
+                        coords = [min(line[0][0][0], line[1][0][0] - 1280), min(line[0][0][1], line[1][0][1]), max(line[0][0][2], line[1][0][2] - 1280), max(line[0][0][3], line[1][0][3])]
+                        best_match_line = mu_ma.match(im0[int(coords[1]):int(coords[3]), int(coords[0]):int(coords[2])], im0[int(coords[1]):int(coords[3]), int(coords[0])+1280:int(coords[2])+1280], output=True, gray=True)
+                        # distance between two point
+                        dis = round(((best_match_line[0][0] - best_match_line[1][0]) ** 2 + (best_match_line[0][1] - best_match_line[1][1]) ** 2) ** 0.5, 2)
+                        # transform best_match_line coordinates back to original image
+                        best_match_line_t = np.int64(best_match_line + np.array([coords[0], coords[1], coords[0]+1280, coords[1]]).reshape(2,2))
+                        # print(best_match_line[0][0], type(best_match_line[0][0]))
+
+                        # convert numpy array to list
+                        cv2.line(im0, tuple(best_match_line_t[0]), tuple(best_match_line_t[1]), (0, 255, 0), 20)
+
                         cv2.line(im0, tensor2int(midpoint(line[0])), tensor2int(midpoint(line[1])), color=(0, 255, 0),
                                  thickness=10)
                         p1 = transverse(tensor2int(midpoint(line[0])))
@@ -275,7 +289,11 @@ def run(weights=ROOT / 'yolov5m.pt',  # model.pt path(s)
                         cv2.putText(im_blank, str(round(distance(line[0], line[1], False).item())),
                                     (max(p1[0], p2[0]), max(p1[1], p2[1])), cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
                                     10)
-
+                        # print best match line on blank image
+                        cv2.line(im_blank, best_match_line[0], best_match_line[1], (0,0,255), 20)
+                        cv2.putText(im_blank, str(dis), best_match_line[0],cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
+                                    10)
+                        # crop image and pass it
                 cv2.imshow(str(p), im0)
                 im_blank = cv2.resize(im_blank, (540, 360))
                 cv2.imshow(str(p) + "blank", im_blank)
