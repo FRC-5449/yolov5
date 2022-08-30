@@ -2,21 +2,21 @@ import cv2
 import numpy as np
 
 # 左相机内参
-left_camera_matrix = np.array([[0, 0, 0],[0, 0, 0],[0, 0, 0]])
+left_camera_matrix = np.array([[0, 0, 0],[0, 0, 0],[0, 0, 0]],dtype=float)
 # 左相机畸变系数:[k1, k2, p1, p2, k3]
-left_distortion = np.array([[0, 0, 0, 0, 0]])
+left_distortion = np.array([[0, 0, 0, 0, 0]],dtype=float)
 # 右相机内参
-right_camera_matrix = np.array([[0, 0, 0],[0, 0, 0],[0., 0., 0]])
+right_camera_matrix = np.array([[0, 0, 0],[0, 0, 0],[0., 0., 0]],dtype=float)
 # 右相机畸变系数:[k1, k2, p1, p2, k3]
-right_distortion = np.array([[0,0, 0, 0, 0]])
+right_distortion = np.array([[0,0, 0, 0, 0]],dtype=float)
 
 # om = np.array([0, 0, 0])
 # R = cv2.Rodrigues(om)[0]
 
 # 旋转矩阵
-R = np.array([[0, 0, 0],[0,0,0],[ 0, 0, 0]])
+R = np.array([[0, 0, 0],[0,0,0],[ 0, 0, 0]],dtype=float)
 # 平移向量
-T = np.array([[0], [0], [0]])
+T = np.array([[0], [0], [0]],dtype=float)
 
 size = (1080, 720)
 

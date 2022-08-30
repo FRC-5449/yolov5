@@ -23,34 +23,43 @@ Usage - formats:
                                          yolov5s.tflite             # TensorFlow Lite
                                          yolov5s_edgetpu.tflite     # TensorFlow Edge TPU
 """
-
-import argparse
+# ------------------------------ basic module ------------------------------
 import os
 import sys
 from pathlib import Path
-import matching_utils as mu
-
 import cv2
-import requests
 import torch
 import torch.backends.cudnn as cudnn
 import numpy as np
+import json
+import threading
+# import camera_config
+# ------------------------------ basic module ------------------------------
 
+# ------------------------------ api server ------------------------------
+from flask import Flask, request, redirect, url_for, send_file, json, make_response
+
+api = Flask(__name__)
+# ------------------------------ api server ------------------------------
+
+# ------------------------------ file manage ------------------------------
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+# ------------------------------ file manage ------------------------------
 
+# ------------------------------ models runtime ------------------------------
 from models.common import DetectMultiBackend
 from utils.datasets import IMG_FORMATS, VID_FORMATS, LoadImages, LoadStreams
 from utils.general import (LOGGER, check_file, check_img_size, check_imshow, check_requirements, colorstr,
                            increment_path, non_max_suppression, print_args, scale_coords, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
-import cv2
+# ------------------------------ models runtime ------------------------------
 
-
+# ------------------------------ functions ------------------------------
 def midpoint(obj):
     # print(obj)
     return (obj[0][0] + obj[0][2]) / 2, (obj[0][1] + obj[0][3]) / 2
@@ -83,11 +92,68 @@ def transverse(obj):
 
 
 def tensor2int(tensor):
-    return int(tensor[0].item()), int(tensor[1].item())
+    return [int(item.item()) for item in tensor]
 
 
+def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
+    global pictureDepth
+    if bypass:
+        return None
+
+    frame1 = img0[0:720, 0:1080]
+    frame2 = img0[0:720, 1080:2560]  # 割开双目图像
+
+    imgL = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)  # 将BGR格式转换成灰度图片
+    imgR = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+
+    # cv2.remap 重映射，就是把一幅图像中某位置的像素放置到另一个图片指定位置的过程。
+    # 依据MATLAB测量数据重建无畸变图片
+    img1_rectified = cv2.remap(imgL, camera_config.left_map1, camera_config.left_map2, cv2.INTER_LINEAR)
+    img2_rectified = cv2.remap(imgR, camera_config.right_map1, camera_config.right_map2, cv2.INTER_LINEAR)
+
+    if COLOR_GRAY2BGR:
+        img1_rectified = cv2.cvtColor(img1_rectified, cv2.COLOR_GRAY2BGR)
+        img2_rectified = cv2.cvtColor(img2_rectified, cv2.COLOR_GRAY2BGR)
+
+    # BM
+    numberOfDisparities = ((720 // 8) + 15) & -16  # 720对应是分辨率的宽
+
+    stereo = cv2.StereoBM_create(numDisparities=16, blockSize=9)  # 立体匹配
+    stereo.setROI1(camera_config.validPixROI1)
+    stereo.setROI2(camera_config.validPixROI2)
+    stereo.setPreFilterCap(31)
+    stereo.setBlockSize(15)
+    stereo.setMinDisparity(0)
+    stereo.setNumDisparities(numberOfDisparities)
+    stereo.setTextureThreshold(10)
+    stereo.setUniquenessRatio(15)
+    stereo.setSpeckleWindowSize(100)
+    stereo.setSpeckleRange(32)
+    stereo.setDisp12MaxDiff(1)
+
+    disparity = stereo.compute(img1_rectified, img2_rectified)  # 计算视差
+    if normalize:
+        disparity = cv2.normalize(disparity, disparity, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+                                  dtype=cv2.CV_8U)  # 归一化函数算法
+
+    threeD = cv2.reprojectImageTo3D(disparity, camera_config.Q, handleMissingValues=True)  # 计算三维坐标数据值
+    threeD = threeD * 16
+
+    # threeD[y][x] x:0~1080; y:0~720;   !!!!!!!!!!
+
+    # cv2.imshow("left", frame1)
+    # cv2.imshow("right", frame2)
+    # cv2.imshow("left_r", imgL)
+    # cv2.imshow("right_r", imgR)
+    # cv2.imshow(WIN_NAME, disp)  #显示深度图的双目画面
+    if 0 <= x <= 1080 and 0 <= y <= 720:
+        pictureDepth = {"depth": threeD, "det": det}
+    return None
+# ------------------------------ functions ------------------------------
+
+# ------------------------------ model ------------------------------
 @torch.no_grad()
-def run(weights=ROOT / 'best.pt',  # model.pt path(s)
+def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
         source='1',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
@@ -113,8 +179,13 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
-        send_image_depth_detection=True, #send result to flask server
+        send_image_depth_detection=True,  # send result to flask server
         ):
+    if __name__ != "__main__":
+        view_img = False  # cv2 can only render main thread
+    global global_view_img, pictureDepth
+    if not global_view_img:
+        view_img = False
     source = str(source)
     mu_ma = mu.match()
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -210,24 +281,21 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                    if save_img or save_crop or view_img:  # Add bbox to image
+                    if save_img or save_crop or view_img or send_image_depth_detection:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         if xyxy[0] < 1280:
-                            list_of_label_left.append([list(xyxy), names[c]])
+                            list_of_label_left.append([tensor2int(xyxy), names[c]])
                         else:
                             list_of_label_right.append([list(xyxy), names[c]])
                         annotator.box_label(xyxy, label, color=colors(c, True))
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
-                if send_image_depth_detection:
-                    data = {"image": im0, "detection": det,}
-                    try:
-                        requests.post("http://localhost:5050/SendPictureDataQuery",files=data)
-                    except Exception as e:
-                        print(f"Send File Failed as {e}")
-                        pass
+                    if send_image_depth_detection:
+                        stero = threading.Thread(target=calculate, args=[im0, list_of_label_left, True], name="stero")
+                        stero.start()
+                pictureDepth["det"] = list_of_label_left
 
             # print(list_of_label_left)
             # print(list_of_label_right)
@@ -280,13 +348,19 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
             if view_img:
                 for line in match_list:
                     if len(line[1]) > 0:
-
-                        coords = [min(line[0][0][0], line[1][0][0] - 1280), min(line[0][0][1], line[1][0][1]), max(line[0][0][2], line[1][0][2] - 1280), max(line[0][0][3], line[1][0][3])]
-                        best_match_line = mu_ma.match(im0[int(coords[1]):int(coords[3]), int(coords[0]):int(coords[2])], im0[int(coords[1]):int(coords[3]), int(coords[0])+1280:int(coords[2])+1280], output=True, gray=True)
+                        coords = [min(line[0][0][0], line[1][0][0] - 1280), min(line[0][0][1], line[1][0][1]),
+                                  max(line[0][0][2], line[1][0][2] - 1280), max(line[0][0][3], line[1][0][3])]
+                        best_match_line = mu_ma.match(im0[int(coords[1]):int(coords[3]), int(coords[0]):int(coords[2])],
+                                                      im0[int(coords[1]):int(coords[3]),
+                                                      int(coords[0]) + 1280:int(coords[2]) + 1280], output=True,
+                                                      gray=True)
                         # distance between two point
-                        dis = round(((best_match_line[0][0] - best_match_line[1][0]) ** 2 + (best_match_line[0][1] - best_match_line[1][1]) ** 2) ** 0.5, 2)
+                        dis = round(((best_match_line[0][0] - best_match_line[1][0]) ** 2 + (
+                                best_match_line[0][1] - best_match_line[1][1]) ** 2) ** 0.5, 2)
                         # transform best_match_line coordinates back to original image
-                        best_match_line_t = np.int64(best_match_line + np.array([coords[0], coords[1], coords[0]+1280, coords[1]]).reshape(2,2))
+                        best_match_line_t = np.int64(
+                            best_match_line + np.array([coords[0], coords[1], coords[0] + 1280, coords[1]]).reshape(2,
+                                                                                                                    2))
                         # print(best_match_line[0][0], type(best_match_line[0][0]))
 
                         # convert numpy array to list
@@ -301,8 +375,8 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                                     (max(p1[0], p2[0]), max(p1[1], p2[1])), cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
                                     10)
                         # print best match line on blank image
-                        cv2.line(im_blank, best_match_line[0], best_match_line[1], (0,0,255), 20)
-                        cv2.putText(im_blank, str(dis), best_match_line[0],cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
+                        cv2.line(im_blank, best_match_line[0], best_match_line[1], (0, 0, 255), 20)
+                        cv2.putText(im_blank, str(dis), best_match_line[0], cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
                                     10)
                         # crop image and pass it
                 cv2.imshow(str(p), im0)
@@ -329,7 +403,6 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
 
-
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)
@@ -338,7 +411,31 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
+# ------------------------------ model ------------------------------
 
+# ------------------------------ api server methods ------------------------------
+@api.route("/getResult", methods=["GET"])
+def returnResult():
+    global pictureDepth
+    output = []
+    if request.method == "GET":
+        map = pictureDepth["depth"]
+        for item in pictureDepth["det"]:
+            imidpoint = midpoint(item[0])
+            iclass = item[1]
+            output.append({"class": iclass, "location": map[imidpoint[1]][imidpoint[0]]})
+    return json.dumps(output)
+# ------------------------------ api server methods ------------------------------
 
-if __name__ == "__main__":
+# ------------------------------ main ------------------------------
+def start():
+    apid = threading.Thread(target=lambda: api.run(host="127.0.0.1", port=8888, debug=False, use_reloader=False))
+    apid.start()
     run()
+# ------------------------------ main ------------------------------
+
+global global_view_img, pictureDepth
+if __name__ == "__main__":
+    pictureDepth = {"depth": [[]], "det": [[]]}
+    global_view_img = True
+    start()
