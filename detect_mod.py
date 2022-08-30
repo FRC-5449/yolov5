@@ -31,6 +31,7 @@ from pathlib import Path
 import matching_utils as mu
 
 import cv2
+import requests
 import torch
 import torch.backends.cudnn as cudnn
 import numpy as np
@@ -112,6 +113,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
+        send_image_depth_detection=True, #send result to flask server
         ):
     source = str(source)
     mu_ma = mu.match()
@@ -219,47 +221,56 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
+                if send_image_depth_detection:
+                    data = {"image": im0, "detection": det,}
+                    try:
+                        requests.post("http://localhost:5050/SendPictureDataQuery",files=data)
+                    except Exception as e:
+                        print(f"Send File Failed as {e}")
+                        pass
+
             # print(list_of_label_left)
             # print(list_of_label_right)
             # match init by doing single side
-            match_list = []
-            for obj_l in list_of_label_left:
-                cache = []
-                for obj_r in list_of_label_right:
-                    if obj_l[1] == obj_r[1]:
-                        cache.append(obj_r)
-                min_dis, obj_opt = 266000, []
-                for obj_r_cache in cache:
-                    curdis = distance(obj_l, obj_r_cache)
-                    if curdis < min_dis:
-                        min_dis = curdis
-                        obj_opt = obj_r_cache
-                match_list.append([obj_l, obj_opt])
+            if view_img:
+                match_list = []
+                for obj_l in list_of_label_left:
+                    cache = []
+                    for obj_r in list_of_label_right:
+                        if obj_l[1] == obj_r[1]:
+                            cache.append(obj_r)
+                    min_dis, obj_opt = 266000, []
+                    for obj_r_cache in cache:
+                        curdis = distance(obj_l, obj_r_cache)
+                        if curdis < min_dis:
+                            min_dis = curdis
+                            obj_opt = obj_r_cache
+                    match_list.append([obj_l, obj_opt])
 
-            # for matches that contains more than one
-            both_side = True
-            if both_side:
-                cache = [[], []]
-                match_list_copy = []
-                for match in match_list:
-                    if match[1] not in cache[0]:
-                        cache[0].append(match[1])
-                    else:
-                        cache[1].append(match[1])
-                for match in match_list:
-                    if match[1] not in cache[1]:
-                        match_list_copy.append(match)
-                check_list = cache[1]
-                for check_index in check_list:
-                    obj_opt, dis_min = [], 2660
+                # for matches that contains more than one
+                both_side = True
+                if both_side:
+                    cache = [[], []]
+                    match_list_copy = []
                     for match in match_list:
-                        if match[1] == check_index and len(match[1]) > 0:
-                            dis_cache = distance(check_index, match[0])
-                            if dis_cache < dis_min:
-                                obj_opt = match[0]
-                                dis_min = dis_cache
-                    match_list_copy.append([check_index, obj_opt])
-                match_list = match_list_copy
+                        if match[1] not in cache[0]:
+                            cache[0].append(match[1])
+                        else:
+                            cache[1].append(match[1])
+                    for match in match_list:
+                        if match[1] not in cache[1]:
+                            match_list_copy.append(match)
+                    check_list = cache[1]
+                    for check_index in check_list:
+                        obj_opt, dis_min = [], 2660
+                        for match in match_list:
+                            if match[1] == check_index and len(match[1]) > 0:
+                                dis_cache = distance(check_index, match[0])
+                                if dis_cache < dis_min:
+                                    obj_opt = match[0]
+                                    dis_min = dis_cache
+                        match_list_copy.append([check_index, obj_opt])
+                    match_list = match_list_copy
 
             # Print time (inference-only)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
@@ -317,6 +328,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                         save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
+
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
