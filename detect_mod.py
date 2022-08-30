@@ -33,6 +33,7 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import json
 import threading
+import matching_utils as mu
 # import camera_config
 # ------------------------------ basic module ------------------------------
 
@@ -57,6 +58,8 @@ from utils.general import (LOGGER, check_file, check_img_size, check_imshow, che
                            increment_path, non_max_suppression, print_args, scale_coords, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
+
+
 # ------------------------------ models runtime ------------------------------
 
 # ------------------------------ functions ------------------------------
@@ -140,20 +143,22 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
     threeD = threeD * 16
 
     # threeD[y][x] x:0~1080; y:0~720;   !!!!!!!!!!
-
-    # cv2.imshow("left", frame1)
-    # cv2.imshow("right", frame2)
-    # cv2.imshow("left_r", imgL)
-    # cv2.imshow("right_r", imgR)
-    # cv2.imshow(WIN_NAME, disp)  #显示深度图的双目画面
+    if debug:
+        cv2.imshow("left", frame1)
+        cv2.imshow("right", frame2)
+        cv2.imshow("left_r", imgL)
+        cv2.imshow("right_r", imgR)
+        cv2.imshow(WIN_NAME, disp)  #显示深度图的双目画面
     if 0 <= x <= 1080 and 0 <= y <= 720:
         pictureDepth = {"depth": threeD, "det": det}
     return None
+
+
 # ------------------------------ functions ------------------------------
 
 # ------------------------------ model ------------------------------
 @torch.no_grad()
-def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
+def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         source='1',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
@@ -180,11 +185,12 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         send_image_depth_detection=True,  # send result to flask server
+        crop=False,
         ):
     if __name__ != "__main__":
-        view_img = False  # cv2 can only render main thread
+        view_img = False  # cv2 can only render on main thread
     global global_view_img, pictureDepth
-    if not global_view_img:
+    if not global_view_img:  # manual override
         view_img = False
     source = str(source)
     mu_ma = mu.match()
@@ -300,7 +306,7 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
             # print(list_of_label_left)
             # print(list_of_label_right)
             # match init by doing single side
-            if view_img:
+            if view_img and crop:
                 match_list = []
                 for obj_l in list_of_label_left:
                     cache = []
@@ -344,8 +350,11 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
             # Stream results
             im0 = annotator.result()
-            im_blank = np.zeros((720, 1280, 3))
             if view_img:
+                cv2.imshow(str(p), im0)
+                cv2.waitKey(1)  # 1 millisecond
+            im_blank = np.zeros((720, 1280, 3))
+            if view_img and crop:
                 for line in match_list:
                     if len(line[1]) > 0:
                         coords = [min(line[0][0][0], line[1][0][0] - 1280), min(line[0][0][1], line[1][0][1]),
@@ -379,10 +388,8 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
                         cv2.putText(im_blank, str(dis), best_match_line[0], cv2.FONT_HERSHEY_COMPLEX, 3, (0, 0, 255),
                                     10)
                         # crop image and pass it
-                cv2.imshow(str(p), im0)
                 im_blank = cv2.resize(im_blank, (540, 360))
                 cv2.imshow(str(p) + "blank", im_blank)
-                cv2.waitKey(1)  # 1 millisecond
 
             # Save results (image with detections)
             if save_img:
@@ -411,6 +418,8 @@ def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s)
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
+
+
 # ------------------------------ model ------------------------------
 
 # ------------------------------ api server methods ------------------------------
@@ -425,6 +434,8 @@ def returnResult():
             iclass = item[1]
             output.append({"class": iclass, "location": map[imidpoint[1]][imidpoint[0]]})
     return json.dumps(output)
+
+
 # ------------------------------ api server methods ------------------------------
 
 # ------------------------------ main ------------------------------
@@ -432,6 +443,8 @@ def start():
     apid = threading.Thread(target=lambda: api.run(host="127.0.0.1", port=8888, debug=False, use_reloader=False))
     apid.start()
     run()
+
+
 # ------------------------------ main ------------------------------
 
 global global_view_img, pictureDepth
