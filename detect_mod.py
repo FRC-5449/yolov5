@@ -118,6 +118,8 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
         img1_rectified = cv2.cvtColor(img1_rectified, cv2.COLOR_GRAY2BGR)
         img2_rectified = cv2.cvtColor(img2_rectified, cv2.COLOR_GRAY2BGR)
 
+    # http://wiki.ros.org/stereo_image_proc/Tutorials/ChoosingGoodStereoParameters
+
     # BM
     numberOfDisparities = ((720 // 8) + 15) & -16  # 720对应是分辨率的宽
 
@@ -161,7 +163,7 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
 def run(weights=ROOT / 'best.pt',  # model.pt path(s)
         source='1',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
-        imgsz=(640, 640),  # inference size (height, width)
+        imgsz=(720, 1080),  # inference size (height, width)
         conf_thres=0.5,  # confidence threshold
         iou_thres=0.35,  # NMS IOU threshold
         max_det=10,  # maximum detections per image
@@ -271,6 +273,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             list_of_label_left = []
             list_of_label_right = []
+            print(names)
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
