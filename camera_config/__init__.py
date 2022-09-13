@@ -2,15 +2,12 @@ import cv2
 import numpy as np
 import os
 
-if os.path.exists("calib.npz"):
-    calib = np.load("calib.npz")
-else:
-    exit(-1)
+assert os.path.exists("stereo_calib.npz"), "stero_calib.npz not exist"
+assert os.path.exists("calib.npz"), "calib.npz not exist"
 
-if os.path.exists("stereo_calib.npz"):
-    stereo_calib = np.load("stereo_calib.npz")
-else:
-    exit(-1)
+calib = np.load("calib.npz")
+stereo_calib = np.load("stereo_calib.npz")
+
 
 
 left_camera_matrix = calib["mtxL"]
@@ -29,9 +26,9 @@ R = stereo_calib["R"]
 T = stereo_calib["T"]
 
 size = (1280, 720)
-print(D1, D2)
-print( K1, K2)
-print(size, T.T*T, R)
+print(D1.T[:4].shape, D2.shape)
+print(K1.shape, K2.shape)
+print(D1)
 R1, R2, P1, P2, Q, validPixROI1, validPixROI2 = cv2.stereoRectify(K1,D1,
                                                                   K2,D2,
                                                                   size,

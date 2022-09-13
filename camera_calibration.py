@@ -79,7 +79,7 @@ for path in track(glob.glob('./pic/*.png'), description="Processing..."):
     # Display the image
     cv2.imshow('chess board(L)', imgL)
     cv2.imshow('chess board(R)', imgR)
-    cv2.waitKey(500)
+    cv2.waitKey(1)
 
 # Calibrate the camera and save the results
 
@@ -87,7 +87,8 @@ retL, mtxL, distL, rvecsL, tvecsL = cv2.calibrateCamera(objectPointsArrayL, imgP
 retR, mtxR, distR, rvecsR, tvecsR = cv2.calibrateCamera(objectPointsArrayR, imgPointsArrayR, grayR.shape[::-1], None, None)
 np.savez('camera_config/calib.npz', mtxL=mtxL,mtxR=mtxR, distL=distL,distR=distR, rvecsL=rvecsL,rvecsR=rvecsR, tvecsL=tvecsL,tvecsR=tvecsR)
 ret, K1, D1, K2, D2, R, T, E, F = cv2.stereoCalibrate(objectPointsArrayL, imgPointsArrayL, imgPointsArrayR, mtxL, distL, mtxR, distR, (1280, 720))
-np.savez('camera_config/stereo_calib.npz', K1=K1, D1=D1, K2=K2, D2=D2, R=R, T=T, E=E, F=F)
+if ret:
+    np.savez('camera_config/stereo_calib.npz', K1=K1, D1=D1, K2=K2, D2=D2, R=R, T=T, E=E, F=F)
 # Print the camera calibration error
 error = 0
 
