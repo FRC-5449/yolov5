@@ -7,9 +7,12 @@
 import numpy as np
 import cv2
 import glob
-
+try:
+    from rich.progress import track
+except:
+    track = lambda x, **kwargs:x
 # Define the chess board rows and columns
-rows = 7
+rows = 9
 cols = 6
 
 # Set the termination criteria for the corner sub-pixel algorithm
@@ -24,14 +27,24 @@ objectPointsArrayL = []
 objectPointsArrayR = []
 imgPointsArrayL = []
 imgPointsArrayR = []
-
+debug = False
 # Loop over the image files
-for path in glob.glob('../data/left[0-9][0-9].jpg'):
+for path in track(glob.glob('./pic/*.png'), description="Processing..."):
     # Load the image and convert it to gray scale
     img = cv2.imread(path)
-    imgL = img[0:720][0:1080]
-    imgR = img[0:720][1080:2560]
-    
+    imgL = img[0:720, 0:1280]
+    imgR = img[0:720, 1280:2560]
+    print(path)
+    if debug:
+        print(img.shape)
+        print(imgL.shape)
+        cv2.imshow("test", img)
+        cv2.waitKey(0)
+        cv2.imshow("testL", imgL)
+        cv2.waitKey(0)
+        cv2.imshow("testR", imgR)
+        cv2.waitKey(0)
+
     grayL = cv2.cvtColor(imgL, cv2.COLOR_BGR2GRAY)
     grayR = cv2.cvtColor(imgR, cv2.COLOR_BGR2GRAY)
 
@@ -40,7 +53,7 @@ for path in glob.glob('../data/left[0-9][0-9].jpg'):
     retR, cornersR = cv2.findChessboardCorners(grayR, (rows, cols), None)
     
     # Make sure the chess board pattern was found in the image
-    if retL:
+    if retL and retR:
         # Refine the corner position
         cornersL = cv2.cornerSubPix(grayL, cornersL, (11, 11), (-1, -1), criteria)
 
@@ -50,8 +63,8 @@ for path in glob.glob('../data/left[0-9][0-9].jpg'):
 
         # Draw the corners on the image
         cv2.drawChessboardCorners(imgL, (rows, cols), cornersL, retL)
-    # Make sure the chess board pattern was found in the image
-    if retR:
+        print("Left")
+
         # Refine the corner position
         cornersR = cv2.cornerSubPix(grayR, cornersR, (11, 11), (-1, -1), criteria)
 
@@ -61,6 +74,7 @@ for path in glob.glob('../data/left[0-9][0-9].jpg'):
 
         # Draw the corners on the image
         cv2.drawChessboardCorners(imgR, (rows, cols), cornersR, retR)
+        print("Right")
 
     # Display the image
     cv2.imshow('chess board(L)', imgL)
@@ -68,17 +82,12 @@ for path in glob.glob('../data/left[0-9][0-9].jpg'):
     cv2.waitKey(500)
 
 # Calibrate the camera and save the results
-retL, mtxL, distL, rvecsL, tvecsL = cv2.calibrateCamera(objectPointsArrayL, imgPointsArrayL, gray.shape[::-1], None, None)
-retR, mtxR, distR, rvecsR, tvecsR = cv2.calibrateCamera(objectPointsArrayR, imgPointsArrayR, gray.shape[::-1], None, None)
+
+retL, mtxL, distL, rvecsL, tvecsL = cv2.calibrateCamera(objectPointsArrayL, imgPointsArrayL, grayL.shape[::-1], None, None)
+retR, mtxR, distR, rvecsR, tvecsR = cv2.calibrateCamera(objectPointsArrayR, imgPointsArrayR, grayR.shape[::-1], None, None)
 np.savez('camera_config/calib.npz', mtxL=mtxL,mtxR=mtxR, distL=distL,distR=distR, rvecsL=rvecsL,rvecsR=rvecsR, tvecsL=tvecsL,tvecsR=tvecsR)
-
-from pprint import pprint
-pprint(retL, retR)
-pprint(mtxL, mtxR)
-pprint(distL, distR)
-pprint(rvecsL, rvecsR)
-pprint(tvecsL, tvecsR)
-
+ret, K1, D1, K2, D2, R, T, E, F = cv2.stereoCalibrate(objectPointsArrayL, imgPointsArrayL, imgPointsArrayR, mtxL, distL, mtxR, distR, (1280, 720))
+np.savez('camera_config/stereo_calib.npz', K1=K1, D1=D1, K2=K2, D2=D2, R=R, T=T, E=E, F=F)
 # Print the camera calibration error
 error = 0
 

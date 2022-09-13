@@ -34,7 +34,7 @@ import numpy as np
 import json
 import threading
 import matching_utils as mu
-# import camera_config
+import camera_config
 # ------------------------------ basic module ------------------------------
 
 # ------------------------------ api server ------------------------------
@@ -145,14 +145,7 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
     threeD = threeD * 16
 
     # threeD[y][x] x:0~1080; y:0~720;   !!!!!!!!!!
-    if debug:
-        cv2.imshow("left", frame1)
-        cv2.imshow("right", frame2)
-        cv2.imshow("left_r", imgL)
-        cv2.imshow("right_r", imgR)
-        cv2.imshow(WIN_NAME, disp)  #显示深度图的双目画面
-    if 0 <= x <= 1080 and 0 <= y <= 720:
-        pictureDepth = {"depth": threeD, "det": det}
+    pictureDepth = {"depth": threeD, "det": det}
     return None
 
 
@@ -161,14 +154,14 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
 # ------------------------------ model ------------------------------
 @torch.no_grad()
 def run(weights=ROOT / 'best.pt',  # model.pt path(s)
-        source='1',  # file/dir/URL/glob, 0 for webcam
+        source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(720, 1080),  # inference size (height, width)
         conf_thres=0.5,  # confidence threshold
         iou_thres=0.35,  # NMS IOU threshold
         max_det=10,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        view_img=True,  # show results
+        view_img=False,  # show results
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
@@ -302,7 +295,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s)
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
                     if send_image_depth_detection:
-                        stero = threading.Thread(target=calculate, args=[im0, list_of_label_left, True], name="stero")
+                        stero = threading.Thread(target=calculate, args=[im0, list_of_label_left, False], name="stero", timeout=10)
                         stero.start()
                 pictureDepth["det"] = list_of_label_left
 
@@ -439,11 +432,16 @@ def returnResult():
     return json.dumps(output)
 
 
+@api.route("/test", methods=["GET"])
+def test():
+    return {"status": 200}
+
+
 # ------------------------------ api server methods ------------------------------
 
 # ------------------------------ main ------------------------------
 def start():
-    apid = threading.Thread(target=lambda: api.run(host="127.0.0.1", port=8888, debug=False, use_reloader=False))
+    apid = threading.Thread(target=lambda: api.run(host="0.0.0.0", port=8888, debug=False, use_reloader=False))
     apid.start()
     run()
 
