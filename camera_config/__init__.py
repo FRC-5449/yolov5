@@ -26,13 +26,11 @@ R = stereo_calib["R"]
 T = stereo_calib["T"]
 
 size = (1280, 720)
-print(D1.T[:4].shape, D2.shape)
-print(K1.shape, K2.shape)
-print(D1)
+
 R1, R2, P1, P2, Q, validPixROI1, validPixROI2 = cv2.stereoRectify(K1,D1,
                                                                   K2,D2,
                                                                   size,
-                                                                  T,R,)
+                                                                  R,T,)
 
 left_map1, left_map2 = cv2.initUndistortRectifyMap(left_camera_matrix, left_distortion, R1, P1, size, cv2.CV_16SC2)
 right_map1, right_map2 = cv2.initUndistortRectifyMap(right_camera_matrix, right_distortion, R2, P2, size, cv2.CV_16SC2)
