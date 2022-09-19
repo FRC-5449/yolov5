@@ -58,8 +58,6 @@ from utils.general import (LOGGER, check_file, check_img_size, check_imshow, che
                            increment_path, non_max_suppression, print_args, scale_coords, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
-
-from multiprocessing import Process
 # ------------------------------ models runtime ------------------------------
 
 # ------------------------------ functions ------------------------------
@@ -127,11 +125,11 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
 
 # ------------------------------ model ------------------------------
 @torch.no_grad()
-def run(weights=ROOT / 'best.pt',  # model.pt path(s) # best.pt
+def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s) # best.pt
         source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(720, 2560),  # inference size (height, width)
-        conf_thres=0.5,  # confidence threshold
+        conf_thres=0.3,  # confidence threshold
         iou_thres=0.35,  # NMS IOU threshold
         max_det=10,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
@@ -151,7 +149,7 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s) # best.pt
         line_thickness=3,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
-        half=True,  # use FP16 half-precision inference
+        half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         send_image_depth_detection=True,  # send result to flask server
         crop=False,
@@ -238,6 +236,9 @@ def run(weights=ROOT / 'best.pt',  # model.pt path(s) # best.pt
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+
+            # print(im0.shape)
+
             list_of_label_left = []
             list_of_label_right = []
             # print(names)
@@ -406,14 +407,17 @@ def returnResult():
     # np.savez("test.npz",depth=pictureDepth["depth"],det=pictureDepth["det"])
     if request.method == "GET":
         map = pictureDepth["depth"]
-        for item in pictureDepth["det"]:
-            iclass = item[1]
-            x1, y1, x2, y2 = item[0]
-            mean = np.nanmean(np.ma.masked_invalid(map[y1:y2,x1:x2]), axis=(0,1))
-            if np.isnan(mean.all()):
-                print(mean)
-                exit(-1)
-            output.append({"class": iclass, "location": mean.tolist()})
+        det = pictureDepth["det"]
+        if len(det): #还没有检测结果
+            for item in det:
+                iclass = item[1]
+                x1, y1, x2, y2 = item[0]
+                mean = np.nanmean(np.ma.masked_invalid(map[y1:y2,x1:x2]), axis=(0,1))
+                if np.isnan(mean[0]) or np.isnan(mean[1]) or np.isnan(mean[2]):
+                    continue
+                output.append({"class": iclass, "location": mean.tolist()})
+        else:
+            return json.dumps(output)
     return json.dumps(output)
 
 
@@ -436,6 +440,7 @@ def start():
 
 global global_view_img, pictureDepth
 if __name__ == "__main__":
+    print("Init")
     # server = Process(target=lambda: api.run(host="0.0.0.0", port=8880, debug=False, use_reloader=False))
     pictureDepth = {"depth": [[]], "det": [[]]}
     global_view_img = False
