@@ -85,10 +85,13 @@ for path in track(glob.glob('./pic/*.png'), description="Processing..."):
 
 retL, mtxL, distL, rvecsL, tvecsL = cv2.calibrateCamera(objectPointsArrayL, imgPointsArrayL, grayL.shape[::-1], None, None)
 retR, mtxR, distR, rvecsR, tvecsR = cv2.calibrateCamera(objectPointsArrayR, imgPointsArrayR, grayR.shape[::-1], None, None)
-np.savez('camera_config/calib.npz', mtxL=mtxL,mtxR=mtxR, distL=distL,distR=distR, rvecsL=rvecsL,rvecsR=rvecsR, tvecsL=tvecsL,tvecsR=tvecsR)
+np.savez('calib.npz', mtxL=mtxL, mtxR=mtxR, distL=distL, distR=distR, rvecsL=rvecsL, rvecsR=rvecsR, tvecsL=tvecsL, tvecsR=tvecsR)
 ret, K1, D1, K2, D2, R, T, E, F = cv2.stereoCalibrate(objectPointsArrayL, imgPointsArrayL, imgPointsArrayR, mtxL, distL, mtxR, distR, (1280, 720))
 if ret:
-    np.savez('camera_config/stereo_calib.npz', K1=K1, D1=D1, K2=K2, D2=D2, R=R, T=T, E=E, F=F)
+    print("Saved")
+    np.savez('stereo_calib.npz', K1=K1, D1=D1, K2=K2, D2=D2, R=R, T=T, E=E, F=F)
+else:
+    raise ValueError("Saved Failed")
 # Print the camera calibration error
 error = 0
 
