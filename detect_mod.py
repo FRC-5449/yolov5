@@ -127,11 +127,10 @@ def calculate(img0, det, bypass=False, normalize=False, COLOR_GRAY2BGR=False):
 
 # ------------------------------ model ------------------------------
 @torch.no_grad()
-def run(weights=ROOT / 'yolov5n.pt',  # model.pt path(s) # best.pt
-        # source='0',  # file/dir/URL/glob, 0 for webcam
-        source="pic",
+def run(weights=ROOT / 'best.pt',  # model.pt path(s) # best.pt
+        source='0',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
-        imgsz=(720, 1280),  # inference size (height, width)
+        imgsz=(720, 2560),  # inference size (height, width)
         conf_thres=0.5,  # confidence threshold
         iou_thres=0.35,  # NMS IOU threshold
         max_det=10,  # maximum detections per image
@@ -439,5 +438,5 @@ global global_view_img, pictureDepth
 if __name__ == "__main__":
     # server = Process(target=lambda: api.run(host="0.0.0.0", port=8880, debug=False, use_reloader=False))
     pictureDepth = {"depth": [[]], "det": [[]]}
-    global_view_img = True
+    global_view_img = False
     start()
